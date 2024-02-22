@@ -398,3 +398,199 @@ hystrix.command.default.execution.isolation.thread.timeoutInMilliseconds: 63000
 ribbon.ConnectTimeout: 3000
 ribbon.ReadTimeout: 60000
 ```
+
+## Gateway
+
+### Configuración Base
+
+### Dependecies
+
+```txt
+spring cloud gateway
+spring eureka client
+devtools
+```
+
+### Properties
+
+```txt
+spring.application.name=gateway-service
+server.port=8765
+
+#Permite al API gateway buscar los servicios por default es false
+spring.cloud.gateway.discovery.locator.enabled=true
+
+#Cambia a lowercase el ID del nombre del servicio
+spring.cloud.gateway.discovery.locator.lower-case-service-id=true
+
+
+#Servicio de Stock
+spring.cloud.gateway.routes[0].id=product-service
+spring.cloud.gateway.routes[0].uri=lb://product-service
+spring.cloud.gateway.routes[0].predicates[0]=Path=/stock/v1/**
+
+#Customer
+#spring.cloud.gateway.routes[1].id=customer-service
+#spring.cloud.gateway.routes[1].uri=lb://customer-service
+#spring.cloud.gateway.routes[1].predicates[0]=Path=/customer/v1/**
+
+```
+
+## Customer Services 
+
+### Configuración Base
+
+### Dependecies
+
+```txt
+web, eureka client, openfeign, devtools, lombok, jpa
+```
+
+Tambien agregar la dependencia del model mapper
+
+```xml
+		<dependency>
+			<groupId>org.modelmapper</groupId>
+			<artifactId>modelmapper</artifactId>
+			<version>2.4.4</version>
+		</dependency>
+```
+
+### Properties
+
+```txt
+spring.application.name=customer-service
+server.port=8081
+spring.profiles.active=development
+logging.level.com.ibm.demo=debug
+
+spring.jpa.show-sql=false
+spring.jpa.properties.hibernate.format_sql=false
+
+server.servlet.context-path=/customer/v1
+
+```
+
+### Estructura del proyecto
+
+```txt
+controller, domain, exceptions, model, repository, service, impl
+```
+
+### Domain 
+
+Copiarse product de product-service
+
+
+### Model
+
+Copiarse ProductResponseModel de product-service
+
+### App Clase
+
+@EnableFeignClients
+@EnableAutoConfiguration(exclude={DataSourceAutoConfiguration.class})
+
+
+### Controller
+
+```java
+@Slf4j
+@RestController
+@RequestMapping("/sales")
+public class CustomerController {
+
+    @Autowired
+    CustomerService service;
+
+    @GetMapping(value="/{productId}", produces = MediaType.APPLICATION_JSON_VALUE)
+    @ResponseStatus(HttpStatus.OK)
+    public ProductResponseModel getProductById(@PathVariable("productId") UUID productId){
+        log.debug("Finding product by id [{}]", productId);
+        return service.getProductById(productId);
+    }
+
+}
+```
+
+### Service
+
+```java
+@Service
+public interface CustomerService {
+    ProductResponseModel getProductById(UUID productId);
+}
+
+
+@FeignClient(name = "product-service", url="http://localhost:8080/product/")
+public interface ProductRestTemplate {
+
+    @GetMapping(value = "/{productId}", produces = MediaType.APPLICATION_JSON_VALUE)
+    @ResponseStatus(HttpStatus.OK)
+    public ProductResponseModel getProductById(@PathVariable("productId") UUID productId);
+
+}
+
+@FeignClient(name = "DJ", url = "https://dummyjson.com/carts")
+public interface DummyJSON {
+
+    @GetMapping("/")
+    public ResponseEntity<Object> getCarts();
+}
+
+@Slf4j
+@Component
+public class CustomerServiceImpl implements CustomerService {
+
+
+    @Autowired
+    ProductRestTemplate productRestTemplate;
+
+    @Autowired
+    DummyJSON dummyJSON;
+
+    private ModelMapper mapper = new ModelMapper();
+
+    @Override
+    public ProductResponseModel getProductById(UUID productId) {
+        log.debug("OpenFeing - Finding product by id [{}]", productId);
+
+        log.debug(dummyJSON.getCarts().getBody().toString());
+
+        return productRestTemplate.getProductById(productId);
+    }
+/*
+    @Override
+    public ProductResponseModel getProductById(UUID productId) {
+        log.debug("Restemplate - Finding product by id [{}]", productId);
+
+        Map<String, Object> responseJSON = null;
+        ProductResponseModel model = null;
+        ObjectMapper objectMapper = new ObjectMapper();
+        String productByIdURL = "http://localhost:8080/product/6966f770-64e1-11ee-8c99-0242ac120002";
+        RestTemplate restTemplate = new RestTemplate();
+
+        ResponseEntity<String> response
+                = restTemplate.getForEntity(productByIdURL, String.class);
+
+        log.debug(response.getBody());
+
+        try {
+           responseJSON = objectMapper.readValue(response.getBody(), Map.class);
+
+            model = ProductResponseModel.builder()
+                   .id(UUID.fromString((String)responseJSON.get("id")) )
+                   .name((String) responseJSON.get("name"))
+                   .build();
+
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+
+
+        return model;
+    }
+
+ */
+}
+```
